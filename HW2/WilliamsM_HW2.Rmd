@@ -1,0 +1,200 @@
+---
+title: "244 HW 2"
+author: "Molly Williams"
+date: "2/13/2019"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+### 0. Load packages and data
+```{r, message=FALSE}
+
+library(tidyverse)
+library(plotly)
+library(boot)
+library(naniar)
+library(simputation)
+
+cetaceans <- read_csv("captive_cetacean.csv")
+fish_catch <- read_csv("fish_catch.csv")
+
+```
+
+
+### Task 1: Visualizing Cetaceans in Captivity
+```{r, results='hide'}
+
+
+# Filter whale data into new DF that only contains cetaceans born in captivity; retain species and birth year (remove NAs), group by species/birth year
+born_in_captivity <- cetaceans %>%
+  select(species, acquisition, birthYear) %>% 
+  filter(acquisition=="Born") %>%
+  filter(birthYear !="NA") %>%
+  group_by(species, birthYear) %>%
+  tally()
+
+# Convert birth year column to numeric, and look at range of years cetaceans were born into captivity 
+born_in_captivity$birthYear <- as.numeric(born_in_captivity$birthYear)
+range(born_in_captivity$birthYear)
+
+# Look at how many unique species were born into captivity
+unique(born_in_captivity$species)  
+
+# There are several unique names that are the same species (e.g. "white sided, pacific" and "pacific white-sided") that need to be combined:
+
+born_in_captivity$species[born_in_captivity$species=="False Killer Whale"]  <- "Pseudorca" 
+born_in_captivity$species[born_in_captivity$species=="Beluga Whale"]  <- "Beluga" 
+born_in_captivity$species[born_in_captivity$species=="Killer Whale; Orca"]  <- "Orca" 
+born_in_captivity$species[born_in_captivity$species=="White-sided, Pacific"]  <- "Pacific White-Sided"
+born_in_captivity$species[born_in_captivity$species=="Backcross"]  <- "Hybrid"
+
+# Check unique names to make sure it worked:
+unique(born_in_captivity$species)  
+
+
+# Create a plot to visualize the data!
+ggplot(born_in_captivity, aes(x = birthYear, 
+                 y = n,
+                 fill = species)) + 
+  ggtitle("Cetaceans Born in Captivity in the US (1953-2017)") +
+  xlab("Year") +
+  ylab("Number Born") +
+  geom_bar(stat = "identity", position = "stack") +
+  theme_light()
+
+```
+<br>
+*Numbers of cetaceans born into captivity from 1953-2017, organized by nine species and (unspecified). Bottlenose dolphins were the most common species to be born in captivity.*
+
+<br>
+
+
+### Task 2: Parameter Estimation - Wild Fish Catch
+
+<br>
+
+#### 2a-b. Exploratory graph and equation estimation
+```{r}
+
+# Exploratory graph: 
+ggplot(fish_catch, aes(x = year, 
+                 y = wild_catch)) + 
+  ggtitle("Wild Fish Catch 1950-2012") +
+  xlab("Year") +
+  ylab("Catch (millions of tons)") +
+  geom_line() +
+  theme_light()
+
+# Add new column to wild_catch to set 1950 to t=0, 1950 to t=1, etc:
+fish_catch$time <- fish_catch$year-1950
+
+
+# Estimate B in logistic growth equation (N = A/(1+Be^(~rt)): 
+BEstimate <- (93 - 17)/17 # ~4.5
+
+# Estimate r: 
+exp_phase <- fish_catch %>% 
+  filter(year<1996)
+
+ggplot(exp_phase, aes(x = time, y = log(wild_catch))) +
+  geom_point() # looks linear-ish
+
+lm(log(wild_catch) ~ time, data = exp_phase) # r estimate = 0.034
+
+
+```
+*Wild fish catch over time shows logistic growth, according to the equation N = 93/(1+4.5e^(~0.034t)).* 
+
+<br>
+
+#### 2c-d. Non-linear Least Squares (NLS) model and figure 
+```{r, results='hide'}
+
+
+fish_fit <- nls(wild_catch ~ A/(1+B*exp(-r*time)),
+                start = list(A = 93, B = 4.5, r = 0.034),
+                data = fish_catch,
+                trace = TRUE)
+
+A <- coef(fish_fit)[1]
+B <- coef(fish_fit)[2]
+r <- coef(fish_fit)[3]
+
+# Create a new sequence of time values (time_seq)
+time_seq <- seq(0,65, length = 100)
+
+# Plug the new sequence into the model with the parameters A, B and r that we found:
+
+fish_predict <- A/(1+B*exp(-r*time_seq))
+
+predict_df <- data.frame(time_seq, fish_predict)
+
+ggplot(fish_catch, aes(x = time, y = wild_catch)) + 
+  geom_point(colour = "blue", size = 2) + 
+  theme_bw() +
+  geom_line(data = predict_df, aes(x = time_seq, y = fish_predict), colour = "green", size = 1) + 
+  xlab("Time (Years since 1950)") +
+  ylab("Wild fish catch (millions of tons)") +
+  ggtitle("Non-linear Least Squares Model for Wild Fish Catch, 1950-2012")
+
+```
+
+
+
+<br>
+
+### Task 3: Bootstrapped Confidence Interval for Proportions
+
+
+```{r, results='hide'}
+
+nb_queer <- c(1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+mean_fun <- function(x,i) {mean(x[i])}
+
+set.seed(10)
+nb_boot_1000000 <- boot(nb_queer, mean_fun, R = 1000000)
+
+boot.ci(nb_boot_1000000, conf = 0.95)
+
+
+ggplot() +
+  aes(nb_boot_1000000$t) +
+  geom_histogram()
+
+```
+<br>
+
+Based on the bootstrap confidence interval calculation, the 95% confidence interval falls between approximately 45% and 77%. This means that based on a bootstrapped sample of one million respondents, we can say with 95% confidence that the actual proportion of nonbinary and queer-identified indivduals who have experienced exclusionary, offensive, hostile or intimidating conduct at UCSB falls within this interval.
+
+
+### Task 4: R Studio Conference Talks
+
+
+#### Teaching data science with puzzles - Irene Steves
+- Tidies of March: puzzles that highlight what R/tidyverse are good at; turning messy data into tidy data! Bite size puzzles that focus on core data science skills
+- Lots more to wrangling data than just what's in the tidyverse! :) 
+- *Question*: How are you promoting these puzzles? How will people know they're there? Is there a way to share submitted solutions etc?
+
+
+
+
+#### Teaching R using inclusive pedagogy: Practices and lessons learned from over 700 Carpentries workshops - Tracy Teal
+- Data is power; data science tools need to be democratized to empower people to answer questions that are important to them
+- Important to establish a growth mindset, and for folks to feel like coding is for them (focus on effort, not outcomes); safe space to continue learning (accessible, welcoming)!
+- *Question*: What would be the best way to standardize these best practices across R communities?
+
+
+#### R at the ACLU: Joining tables to to reunite families - Brooke Watson
+- No data system in place to organize all the incoming data after the imposition of the family separation policy 
+- Assertions and filters were used to un-nest data; used leaflet to visualize where the children are
+- "the cases we're fighting are about who gets counted"
+- *Question*: What are the future applications of data science to social justice movements? How can it be more quantitative than qualitative? 
+
+
+

@@ -1,0 +1,152 @@
+---
+title: "244 HW 1"
+author: "Molly Williams"
+date: "1/26/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Task 1: Visualizing Launch Failure Over Time
+#### Load packages and data
+```{r load, message=FALSE}
+
+library(tidyverse)
+library(janitor)
+library(factoextra)
+library(shinythemes)
+library(ggrepel)
+library(dplyr)
+
+library(devtools)
+install_github("vqv/ggbiplot")
+library(ggbiplot)
+
+launches <- read_csv("launches.csv")
+agencies <- read_csv("agencies.csv")
+
+select <- dplyr::select
+```
+
+
+#### Wrangle Data
+```{r}
+
+# Select only launch year and failure, group by year and visualize
+fails <- launches %>%
+  group_by(launch_year, category) %>%
+  filter(category=="F") %>% 
+  tally() %>% 
+  select(launch_year, n)
+  
+colnames(fails)[colnames(fails)=="n"] <- "fails"
+
+
+# Do the same but for successes
+successes <- launches %>%
+  group_by(launch_year, category) %>%
+  filter(category=="O", launch_year != "1984", launch_year != "2001") %>% 
+  tally() %>%
+  select(launch_year, n)
+
+
+colnames(successes)[colnames(successes)=="n"] <- "successes"
+
+# No fails recorded in 1984 and 2001, so removed these years from the successes data set
+
+
+# Merge successes and failures into one data frame
+
+successes_fails <- merge(successes, fails, by="launch_year") %>% 
+    select(launch_year, fails, successes)
+
+
+# Calculate fail rate by year
+successes_fails$fail_rate <- (successes_fails$fails/(successes_fails$successes+successes_fails$fails))*100
+
+
+
+```
+
+#### Visualize Data
+
+```{r}
+
+# Visualize fails over time: 
+ggplot(fails, aes(x = launch_year, y = fails)) +
+  geom_line() +
+  theme_light()
+
+
+# Visualize successes over time:
+ggplot(successes, aes(x = launch_year, y = successes)) +
+  geom_line() +
+  theme_light()
+
+# Visualize fail rate over time: 
+ggplot(successes_fails, aes(x = launch_year, y = fail_rate)) +
+  geom_line() +
+  theme_light() +
+  ggtitle("Launch Fail Rate Over Time") +
+  xlab("Launch Year") +
+  ylab("Fail Rate (%)")
+
+```
+
+
+## Task 2: Raw Fruit and Vegetable Nutrients 
+
+#### Read in and wrangle data
+```{r}
+
+# Load in data and wrange
+fruits_veg <- read_csv("usda_nutrients.csv") %>%
+  filter(FoodGroup == "Vegetables and Vegetable Products" | FoodGroup == "Fruits and Fruit Juices") %>% 
+  filter(str_detect(ShortDescrip, "RAW"))
+
+
+```
+
+
+#### Perform PCA 
+
+```{r}
+
+# Run PCA:
+fv_pca <- prcomp(fruits_veg[9:30], scale = TRUE)
+
+summary(fv_pca)
+
+
+# Look at contributions of each variable:
+fviz_contrib(fv_pca, choice = "var", axes = 1, top = 6) 
+
+# Visualize PCA with a biplot:
+fviz_pca_biplot(fv_pca,
+                label = "var",
+                repel = "TRUE",
+                habillage = fruits_veg$FoodGroup,
+                alpha.ind = .4,
+                labelsize = 3) +
+  theme_minimal()
+
+
+```
+
+#### Describe trends
+
+Fruit and fruit juices are more similar in nutrient composition (generally high in sugar and vitamin C), whereas vegetables and vegetable products have a wider range in nutritional content. Vitamin C and sugar are strongly correlated, and have a strong negative correlation with several nutrients, including zinc, thiamin, protein, and iron. Selenium and B12 are also strongly correlated, moderately correlated with niacin, and are not correlated not with any other nutrients.
+
+
+
+
+
+
+
+
+
+
+
+

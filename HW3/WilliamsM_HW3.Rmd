@@ -1,0 +1,247 @@
+---
+title: "MW ESM 244 HW 3"
+author: "Molly Williams"
+date: "2/28/2019"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Task 1. Open Data Science
+
+Open scientific practices emphasize increasing accessibility to data that has already been generated, as well as contribution to research. Proponents of open science seek increased accountability and transparency through the sharing of methods, ideas and data. Their vision is to establish universal access to the “dialogue of science”, whether it is for community-based research or seeks to improve the health outcomes of an individual. 
+
+Currently, practices associated with open science are actually not accessible for all scientists. Not only do interested parties encounter barriers that prevent them from accessing information, but scientists themselves encounter barriers preventing them from publishing and sharing their work in a meaningful way. These impediments, often financial or social, are difficult to quantify and concerns are often ignored. True accessibility requires intentionality and in-depth analysis of how systems are designed to work for a privileged few. For those who do not face these barriers, there is still ambivalence about whether adopting open science practices will actually benefit their careers, even though research (described in McKiernan et al. 2016) has shown that open publications have a higher rate of citation by peers and garner more media coverage. Despite these potential benefits, researchers are still concerned that open access journals do not have rigorous peer review structure and publishing could result in intellectual theft. 
+
+Open science is a concept I have been familiar with for a long time, but have only recently begun seeing what it looks like in practice. My group project is centered on creating an open-source tool that can be used for increasing uptake of data generated from citizen science projects. My team created a Python (an open source language/program) script that scrapes volunteer-collected whale sighting data from a web server (requires government-administered log-in credentials), cleans and organizes the data, and funnels it into a SQLite (also open source) database. We are working on making this code accessible and reproducible, so that it can be utilized by our client and potentially leaders of other citizen science endeavors in order to increase the usability of the data they collect. Through this project, we have seen how data management and stewardship works at every level, and how practitioners often take ownership over the data and are reluctant to share it for various reasons. We are currently addressing the issue of log-in credentials that are required to access the particular whale sighting data we are working with, and are planning to upload our cleaned data set to the Ocean Biogeographic Information System (OBIS), an internationally recognized open data repository.
+
+In addition to my GP work, joining the Ocean Health Index (OHI) team at NCEAS and reading their publications such as Better Science in Less time (published in 2017 in Nature) opened my eyes to how open data science can be both more productive and more inclusive. The OHI calculates scores on ten goals that have to do with how humans use the ocean, such as fishing opportunities, biodiversity, and harder-to-quantify values such as sense of place. The code used to perform the global assessment and calculate these scores is openly available, and research groups (made up of non-experts and experts alike) from around the world can incorporate it into doing a specialized assessment for their particular region. I find this emphasis on reproducibility and accessibility to be a fantastic example of open data science working efficiently in action. 
+
+Despite efforts to promote open access practices and principles, they still have not been widely adopted or integrated into the academic industrial complex. People of privilege are still the most likely to reach the upper echelons of scientific fields, and barriers in place (financial, societal, physical or otherwise) prevent others from reaching their potential for contribution and advancement. Knowledge and data hoarding prevent innovation. I want to continue to promote citizen science as an equivalent method of collecting environmental data on par with traditional research. I believe it can inform our actions as we move into a critical time for addressing climate change, and can remove barriers that prevent people from engaging in science.  
+
+
+<br>
+<br>
+
+### Task 2: Truckee River Flow (2000-2016)
+#### *Load data and packages*
+```{r, message=FALSE}
+
+
+library(tidyverse)
+library(tseries)
+library(forecast)
+
+flow <- read_csv("truckee_flow_edited.csv")
+
+
+```
+
+
+#### a. Convert data to time series and decompose:
+```{r, warning=FALSE}
+
+# Convert data to time series:
+flow_ts <- ts(flow$monthly_mean, frequency = 12, start = c(2000,1))
+# plot(flow_ts)
+
+# Decompose:
+flow_dc <- decompose(flow_ts)
+plot(flow_dc)
+
+# Stationary/non-stationary? Augmented Dickey Fuller test:
+adf_flow <- adf.test(flow_ts) 
+# adf_flow # stationary
+
+```
+The data appear to be seasonal and show an overall downward trend. There may be three potential outliers, but could be part of a predictable periodicity if more data were available for analysis. The data are stationary according to the Augmented Dickey-Fuller test (p = 0.01)
+
+<br>
+
+#### b. Forecasting using Holt-Winters
+```{r}
+
+flow_hw <- HoltWinters(flow_ts)
+# flow_hw  # check smoothing parameters
+plot(flow_hw)
+
+# Then forecast
+flow_forecast <- forecast(flow_hw, h = 60) #forecasts 60 periods, or 5 years 
+plot(flow_forecast) # blue lines are model predictions, grey shows the 80% and 95% confidence intervals for predicted value
+
+
+
+```
+
+#### c. Assessment of residuals 
+
+```{r}
+
+hist(flow_forecast$residuals) 
+
+```
+
+The residuals appear to be normally distributed, with no cause for concern about bias or poor model fit.
+
+<br>
+<br>
+
+### Task 3: Mapping CA's National Parks
+
+#### *Load packages and data*
+```{r, message=FALSE}
+
+library(tidyverse)
+library(sf)
+library(leaflet)
+library(ggrepel)
+library(ggspatial)
+library(rgdal)
+
+# Read in shapefiles for park boundaries and CA counties:
+ca_park_sf <- read_sf(".", layer = "nps_boundary") %>% 
+  filter(STATE == "CA")
+
+ca_counties <- read_sf(".", layer = "california_county_shape_file")
+
+```
+<br>
+
+#### Create map of parks in CA with labels
+
+```{r, message=FALSE, warning=FALSE}
+
+# Set CRS of both layers:
+st_crs(ca_counties) = 4326
+st_crs(ca_park_sf) = 4326
+
+# Get centroid point coordinates
+centroids <- sf::st_centroid(ca_park_sf$geometry)
+
+# Create new data frame with merged lat/longs of centroids and park names:
+centroid_coords <- as.data.frame(sf::st_coordinates(centroids)) %>% 
+  add_column(ca_park_sf$UNIT_NAME)
+
+colnames(centroid_coords) <- c("long", "lat", "park_name")
+
+  
+# Create a labeled map of parks:
+ggplot(ca_park_sf) +
+  geom_sf(aes(fill = GNIS_ID), 
+          show.legend = FALSE) +
+  geom_sf(data = ca_counties, 
+          fill = "NA",
+          color = "gray30",
+          size = 0.1) +
+  theme_minimal() +
+  coord_sf(datum=NA) +
+  labs(title = "National Parks in CA") +
+  geom_label_repel(data = centroid_coords, 
+                   aes(x=long, y=lat, label = park_name), 
+                   size = 1.5,
+                   force = 25,
+                   nudge_y = 0.05,
+                   segment.size = 0.2)
+```
+
+
+<br>
+<br>
+
+### Task 4: Desert Lizards
+
+#### *Load packages and data*
+```{r, message=FALSE}
+
+library(tidyverse)
+library(pwr)
+library(effsize)
+
+lizards <- read_csv("lter_lizard_pitfall.csv") %>% 
+  dplyr::filter(weight != ".") %>% 
+  dplyr::filter(site == "CALI") %>% 
+  dplyr::filter(tail != ".") %>% 
+  dplyr::filter(sex != "J") %>% 
+  dplyr::filter(sex != ".")
+
+```
+
+<br>
+
+#### Wrangle & explore data
+
+```{r}
+
+# Change weight column to numeric: 
+lizards$weight <- as.numeric(lizards$weight)
+
+# Create vectors of weights for males and females: 
+males <- lizards %>% 
+  dplyr::filter(sex == "M")
+
+male_weights <- as.vector(males$weight)
+
+females <- lizards %>% 
+  dplyr::filter(sex == "F")
+
+female_weights <- as.vector(females$weight)
+
+# Look at data distributions for each:
+par(mfrow = c(2,2))
+hist(male_weights)
+qqnorm(male_weights)
+hist(female_weights)
+qqnorm(female_weights)
+
+# Data do not appear to be normally distributed for either sex
+
+```
+
+<br>
+
+#### 1. Perform t-test to compare mean weight between males and females
+```{r}
+# Make columns into vectors:
+
+t_test <- t.test(male_weights, female_weights)
+t_test
+```
+The mean weights for samples of male (n=55) and female (n=75) lizards trapped in California were not found to be significantly different using a Welch's two sample t-test (p = 0.49, t(123) = -0.6825). Mean weights were 5.09 grams for males and 5.83 grams for females.
+
+
+<br>
+
+#### 2. Perform Chi-square test to compare broken tails 
+
+```{r}
+
+# Look at proportions 
+tail_table <- table(lizards$sex, lizards$tail)
+tail_table
+tail_prop <- prop.table(tail_table)
+tail_prop
+# Perform Chi-square
+
+males_tails <- c(10, 45)
+females_tails <- c(17,58)
+tails <- rbind(males_tails, females_tails)
+colnames(tails) <- c("B", "W")
+
+
+tails_chisq <- chisq.test(tails)
+tails_chisq
+
+```
+Performing a Pearson's Chi-square test on proportions of male and female lizards with broken tails captured in California did not reveal a significant difference (p = 0.69, $\chi$^2^(1) = 0.163)
+
+
+
+
+
+
